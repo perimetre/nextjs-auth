@@ -21,8 +21,8 @@
     "type": "git",
     "url": "git+https://github.com/perimetre/nextjs-auth.git"
   },
-  "author": "",
-  "license": "ISC",
+  "author": "Perimetre (https://perimetre.co/)",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/perimetre/nextjs-auth/issues"
   },
