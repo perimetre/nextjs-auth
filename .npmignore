@@ -1,0 +1,14 @@
+.editorconfig
+.vscode
+node_modules
+examples
+src
+.eslintignore
+.eslintrc.js
+.gitignore
+.huskyrc
+.npmignore
+.prettierignore
+.prettierrc.js
+tsconfig.build.json
+tsconfig.json
