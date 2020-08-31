@@ -9,7 +9,7 @@
   },
   "scripts": {
     "prebuild": "npm run check-commit",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "prepublish": "npm run build",
     "prettier": "prettier --write \"{**/*.js,**/*.ts,**/*.tsx}\"",
     "lint": "eslint . --ext js --ext jsx --ext ts --ext tsx",
@@ -42,9 +42,8 @@
     "@typescript-eslint/parser": "^3.10.1",
     "eslint": "^7.7.0",
     "eslint-config-prettier": "^6.11.0",
+    "eslint-plugin-jsdoc": "^30.3.0",
     "eslint-plugin-prettier": "^3.1.4",
-    "eslint-plugin-react": "^7.20.6",
-    "eslint-plugin-react-hooks": "^4.1.0",
     "prettier": "^2.1.1"
   }
 }

@@ -5,25 +5,73 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { AuthSettings } from './index';
 import { isOriginAllowed, isTokenExpired } from './utils';
 
+/**
+ * @typedef UserAuth
+ */
 export type UserAuth = {
+  /**
+   * The user's accessToken
+   */
   accessToken: string;
+  /**
+   * The user's refreshToken
+   */
   refreshToken: string;
 };
 
+/**
+ * @typedef HandleUserOptions
+ */
 export type HandleUserOptions = {
+  /**
+   * Whether or not you want to skip the refresh of the token if it ever happens
+   */
   skipRefresh?: boolean;
+
+  /**
+   * Whether or not you want to force the refresh of the token every time an access token is requested
+   */
   forceRefresh?: boolean;
 };
 
+/**
+ * @typedef HandleSessionOptions
+ */
 export type HandleSessionOptions = {
+  /**
+   * Whether or not you want to skip the refresh of the token if it ever happens
+   */
   skipRefresh?: boolean;
+
+  /**
+   * Whether or not you want to force the refresh of the token every time an access token is requested
+   */
   forceRefresh?: boolean;
 };
 
+/**
+ * Creates an instance of the auth service
+ *
+ * @param {AuthSettings} settings The settings used for the auth client
+ * @param {ISessionStore} sessionStore An instance of the sessionStore to be used
+ * @returns {typeof authService} The authService instance
+ */
 export const authService = (settings: AuthSettings, sessionStore: ISessionStore) => {
+  /**
+   * Make an error that falls back to "Unauthorized" if NOT `NODE_ENV === development`
+   *
+   * @param {string} message The detailed message to be used if `NODE_ENV === development`
+   * @returns {Error} The error
+   */
   const makeDevUnauthorizedError = async (message: string) =>
     (await settings.authEnv()).NODE_ENV === 'development' ? new Error(message) : new Error('Unauthorized');
 
+  /**
+   * Creates an `ISession` object from a current `UserAuth`
+   *
+   * @param {UserAuth} auth The current `UserAuth`
+   * @returns {ISession} The session object
+   */
   const getSessionFromAuth = (auth: UserAuth): ISession => {
     const { accessToken, refreshToken } = auth;
     const payload = jwt.decode(accessToken);
@@ -35,6 +83,12 @@ export const authService = (settings: AuthSettings, sessionStore: ISessionStore)
     return { accessToken, refreshToken, user: payload, createdAt: Date.now() };
   };
 
+  /**
+   * Get the same session but in an filtered object, that can be used publicly and returned from an API and without any OIDC specific claim.
+   *
+   * @param {ISession} session A non filtered session
+   * @returns {ISession} A filtered session
+   */
   const getPublicSession = (session: ISession): ISession => {
     const newSession = { ...session };
     const user = { ...newSession.user };
@@ -59,8 +113,23 @@ export const authService = (settings: AuthSettings, sessionStore: ISessionStore)
     return { ...newSession, user };
   };
 
+  /**
+   * Returns whether or not the given session is valid.
+   *
+   * @param {ISession | null | undefined} session The session
+   * @returns {boolean} whether or not the given session is valid.
+   */
   const isSessionValid = (session?: ISession | null) => session && session.user && Object.keys(session.user).length > 0;
 
+  /**
+   * The signup handler that must be called by a signup API route.
+   *
+   * It will call the `onSignup` callback, then create a server session for the given user, and return the user payload
+   *
+   * @param {NextApiRequest} req The server request
+   * @param {NextApiResponse} res The server response
+   * @returns The user signup properties
+   */
   const handleSignup = async (req: NextApiRequest, res: NextApiResponse) => {
     try {
       if (!settings?.onSignup) {
@@ -75,7 +144,7 @@ export const authService = (settings: AuthSettings, sessionStore: ISessionStore)
         throw new Error('Response is not available');
       }
 
-      const allowedOrigins = (await settings.authEnv()).allowedOrigins;
+      const allowedOrigins = (await settings.authEnv()).ALLOWED_ORIGINS;
 
       if (!isOriginAllowed(allowedOrigins, req.headers.origin)) {
         throw makeDevUnauthorizedError('Origin not allowed');
@@ -102,6 +171,15 @@ export const authService = (settings: AuthSettings, sessionStore: ISessionStore)
     }
   };
 
+  /**
+   * The login handler that must be called by a login API route.
+   *
+   * It will call the `onLogin` callback, then create a server session for the given user, and return the user payload
+   *
+   * @param {NextApiRequest} req The server request
+   * @param {NextApiResponse} res The server response
+   * @returns The user login properties
+   */
   const handleLogin = async (req: NextApiRequest, res: NextApiResponse) => {
     try {
       if (!settings?.onLogin) {
@@ -116,7 +194,7 @@ export const authService = (settings: AuthSettings, sessionStore: ISessionStore)
         throw new Error('Response is not available');
       }
 
-      const allowedOrigins = (await settings.authEnv()).allowedOrigins;
+      const allowedOrigins = (await settings.authEnv()).ALLOWED_ORIGINS;
 
       if (!isOriginAllowed(allowedOrigins, req.headers.origin)) {
         throw makeDevUnauthorizedError('Origin not allowed');
@@ -143,6 +221,14 @@ export const authService = (settings: AuthSettings, sessionStore: ISessionStore)
     }
   };
 
+  /**
+   * The logout handler that must be called by a logout API route.
+   *
+   * It will call the `onLogout` callback, then clear the server session for the given user.
+   *
+   * @param {NextApiRequest} req The server request
+   * @param {NextApiResponse} res The server response
+   */
   const handleLogout = async (req: NextApiRequest, res: NextApiResponse) => {
     try {
       if (!settings?.onLogout) {
@@ -181,6 +267,17 @@ export const authService = (settings: AuthSettings, sessionStore: ISessionStore)
     }
   };
 
+  /**
+   * Gets the current user session within the server.
+   *
+   * If the current accessToken is expired it will try to refresh it with `onRefresh`.
+   *
+   * @param {NextApiRequest} req The server request
+   * @param {NextApiResponse} res The server response
+   * @param {HandleSessionOptions} options The method options if any
+   * @param {boolean} rawSession Whether or not should filter the session keys
+   * @returns {ISession | undefined} The current user session within the server.
+   */
   const getSession = async (
     req: NextApiRequest,
     res: NextApiResponse,
@@ -251,6 +348,18 @@ export const authService = (settings: AuthSettings, sessionStore: ISessionStore)
     }
   };
 
+  /**
+   * The user handler that must be called by the API route that want's to get the user session.
+   *
+   * It will get the user session and return its claims.
+   *
+   * If the current accessToken is expired it will try to refresh it with `onRefresh`.
+   *
+   * @param {NextApiRequest} req The server request
+   * @param {NextApiResponse} res The server response
+   * @param {HandleUserOptions} options The method options if any
+   * @returns The current user session in the server
+   */
   const handleUser = async (req: NextApiRequest, res: NextApiResponse, options?: HandleUserOptions) => {
     try {
       if (!req) {

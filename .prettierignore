@@ -1,7 +1,4 @@
 .gitignore
-.next
 dist
 node_modules
-.circleci
-static
-graphql.ts
+.next
