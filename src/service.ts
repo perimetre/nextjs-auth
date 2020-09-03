@@ -258,21 +258,23 @@ export const authService = (
         try {
           // Call the login callback
           await settings.onLogout(req, res, sessionPayload as ISession);
-        } finally {
-          await sessionStore.save(req, res, { accessToken: '', refreshToken: '', user: {}, createdAt: Date.now() });
-
-          // Remove the cookies
-          // Ref: https://github.com/auth0/nextjs-auth0/blob/master/src/handlers/logout.ts
-          setCookies(req, res, [
-            {
-              name: sessionSettings.cookieName,
-              value: '',
-              maxAge: -1,
-              path: sessionSettings.cookiePath,
-              domain: sessionSettings.cookieDomain
-            }
-          ]);
+        } catch (err) {
+          // Do nothing
         }
+
+        await sessionStore.save(req, res, { accessToken: '', refreshToken: '', user: {}, createdAt: Date.now() });
+
+        // Remove the cookies
+        // Ref: https://github.com/auth0/nextjs-auth0/blob/master/src/handlers/logout.ts
+        setCookies(req, res, [
+          {
+            name: sessionSettings.cookieName,
+            value: '',
+            maxAge: -1,
+            path: sessionSettings.cookiePath,
+            domain: sessionSettings.cookieDomain
+          }
+        ]);
       }
 
       // If don't have a session just fake that succeded?
