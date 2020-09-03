@@ -234,7 +234,7 @@ const createServerClient = (settings: AuthSettings): AuthClient => {
   // Initialize dependencies
   const sessionSettings = new CookieSessionStoreSettings(settings.session);
   const store: ISessionStore = new CookieSessionStore(sessionSettings);
-  const service = authService(settings, store);
+  const service = authService(settings, store, sessionSettings);
 
   // Return client
   const client: AuthClient = {

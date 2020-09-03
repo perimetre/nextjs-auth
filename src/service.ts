@@ -1,5 +1,7 @@
+import CookieSessionStoreSettings from '@auth0/nextjs-auth0/dist/session/cookie-store/settings';
 import { ISession } from '@auth0/nextjs-auth0/dist/session/session';
 import { ISessionStore } from '@auth0/nextjs-auth0/dist/session/store';
+import { setCookies } from '@auth0/nextjs-auth0/dist/utils/cookies';
 import jwt from 'jsonwebtoken';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { AuthSettings } from './index';
@@ -54,9 +56,14 @@ export type HandleSessionOptions = {
  *
  * @param {AuthSettings} settings The settings used for the auth client
  * @param {ISessionStore} sessionStore An instance of the sessionStore to be used
+ * @param {CookieSessionStoreSettings} sessionSettings An instance of the sessionStore settings
  * @returns {typeof authService} The authService instance
  */
-export const authService = (settings: AuthSettings, sessionStore: ISessionStore) => {
+export const authService = (
+  settings: AuthSettings,
+  sessionStore: ISessionStore,
+  sessionSettings: CookieSessionStoreSettings
+) => {
   /**
    * Make an error that falls back to "Unauthorized" if NOT `NODE_ENV === development`
    *
@@ -253,6 +260,18 @@ export const authService = (settings: AuthSettings, sessionStore: ISessionStore)
           await settings.onLogout(req, res, sessionPayload as ISession);
         } finally {
           await sessionStore.save(req, res, { accessToken: '', refreshToken: '', user: {}, createdAt: Date.now() });
+
+          // Remove the cookies
+          // Ref: https://github.com/auth0/nextjs-auth0/blob/master/src/handlers/logout.ts
+          setCookies(req, res, [
+            {
+              name: sessionSettings.cookieName,
+              value: '',
+              maxAge: -1,
+              path: sessionSettings.cookiePath,
+              domain: sessionSettings.cookieDomain
+            }
+          ]);
         }
       }
 
