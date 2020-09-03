@@ -349,7 +349,7 @@ export const authService = (settings: AuthSettings, sessionStore: ISessionStore)
   };
 
   /**
-   * The user handler that must be called by the API route that want's to get the user session.
+   * The user handler that must be called by the API route that wants to get the user session.
    *
    * It will get the user session and return its claims.
    *
@@ -390,5 +390,63 @@ export const authService = (settings: AuthSettings, sessionStore: ISessionStore)
     }
   };
 
-  return { handleSignup, handleLogin, handleLogout, handleUser, getSession };
+  /**
+   * The update handler that must be called by the API route that wants to update the user claims.
+   *
+   * It will filter the claims and save update the current claims with the existing claims
+   *
+   * @param {NextApiRequest} req The server request
+   * @param {NextApiResponse} res The server response
+   * @returns The current user session in the server
+   */
+  const handleUpdateClaims = async (req: NextApiRequest, res: NextApiResponse) => {
+    try {
+      if (!req) {
+        throw new Error('Request is not available');
+      }
+
+      if (!res) {
+        throw new Error('Response is not available');
+      }
+
+      const allowedOrigins = (await settings.authEnv()).ALLOWED_ORIGINS;
+
+      if (!isOriginAllowed(allowedOrigins, req.headers.origin)) {
+        throw makeDevUnauthorizedError('Origin not allowed');
+      }
+
+      // Get the current session
+      const sessionPayload = await getSession(req, res, { skipRefresh: true }, true);
+
+      // If we have a session, continue
+      if (sessionPayload && isSessionValid(sessionPayload) && req.body && Object.keys(req.body).length > 0) {
+        // Filters the fields we just got. We can only update simple custom claims
+        const bodySession = getPublicSession({ user: req.body } as ISession);
+
+        // Makes a new session that merges both
+        const finalSession = {
+          ...sessionPayload,
+          ...bodySession,
+          user: { ...sessionPayload.user, ...bodySession.user }
+        };
+
+        // Update the current session with the existing + the
+        await sessionStore.save(req, res, finalSession);
+
+        const publicSession = getPublicSession(finalSession);
+        return { user: publicSession.user, accessToken: publicSession.accessToken };
+      } else {
+        throw makeDevUnauthorizedError('[handleUpdateClaims] Invalid session payload');
+      }
+    } catch (error) {
+      // If something failed
+      if (settings?.formatError) {
+        throw settings?.formatError(error);
+      } else {
+        throw error;
+      }
+    }
+  };
+
+  return { handleSignup, handleLogin, handleLogout, handleUser, getSession, handleUpdateClaims };
 };

@@ -134,7 +134,7 @@ export type AuthClient = {
    */
   handleLogout: ReturnType<typeof authService>['handleLogout'];
   /**
-   * The user handler that must be called by the API route that want's to get the user session.
+   * The user handler that must be called by the API route that wants to get the user session.
    *
    * It will get the user session and return its claims.
    *
@@ -158,6 +158,17 @@ export type AuthClient = {
    * @returns {ISession | undefined} The current user session within the server.
    */
   getSession: ReturnType<typeof authService>['getSession'];
+
+  /**
+   * The update handler that must be called by the API route that wants to update the user claims.
+   *
+   * It will filter the claims and save update the current claims with the existing claims
+   *
+   * @param {NextApiRequest} req The server request
+   * @param {NextApiResponse} res The server response
+   * @returns The current user session in the server
+   */
+  handleUpdateClaims: ReturnType<typeof authService>['handleUpdateClaims'];
 };
 
 /**
@@ -202,6 +213,12 @@ const createBrowserClient = (_settings: AuthSettings): AuthClient => {
      */
     getSession: () => {
       throw new Error('The getSession method can only be used from the server side');
+    },
+    /**
+     * The handleUpdateClaims method can only be used from the server side
+     */
+    handleUpdateClaims: () => {
+      throw new Error('The handleUpdateClaims method can only be used from the server side');
     }
   };
   return client;
