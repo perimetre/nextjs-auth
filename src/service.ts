@@ -154,7 +154,7 @@ export const authService = (
       const allowedOrigins = (await settings.authEnv()).ALLOWED_ORIGINS;
 
       if (!isOriginAllowed(allowedOrigins, req.headers.origin)) {
-        throw makeDevUnauthorizedError('Origin not allowed');
+        throw await makeDevUnauthorizedError('Origin not allowed');
       }
 
       // Call the login callback
@@ -204,7 +204,7 @@ export const authService = (
       const allowedOrigins = (await settings.authEnv()).ALLOWED_ORIGINS;
 
       if (!isOriginAllowed(allowedOrigins, req.headers.origin)) {
-        throw makeDevUnauthorizedError('Origin not allowed');
+        throw await makeDevUnauthorizedError('Origin not allowed');
       }
 
       // Call the login callback
@@ -399,7 +399,7 @@ export const authService = (
         const publicSession = getPublicSession(sessionPayload as ISession);
         return { user: publicSession.user, accessToken: publicSession.accessToken };
       } else {
-        throw makeDevUnauthorizedError('[handleUser] Invalid session payload');
+        throw await makeDevUnauthorizedError('[handleUser] Invalid session payload');
       }
     } catch (error) {
       // If something failed
@@ -433,7 +433,7 @@ export const authService = (
       const allowedOrigins = (await settings.authEnv()).ALLOWED_ORIGINS;
 
       if (!isOriginAllowed(allowedOrigins, req.headers.origin)) {
-        throw makeDevUnauthorizedError('Origin not allowed');
+        throw await makeDevUnauthorizedError('Origin not allowed');
       }
 
       // Get the current session
@@ -457,7 +457,7 @@ export const authService = (
         const publicSession = getPublicSession(finalSession);
         return { user: publicSession.user, accessToken: publicSession.accessToken };
       } else {
-        throw makeDevUnauthorizedError('[handleUpdateClaims] Invalid session payload');
+        throw await makeDevUnauthorizedError('[handleUpdateClaims] Invalid session payload');
       }
     } catch (error) {
       // If something failed

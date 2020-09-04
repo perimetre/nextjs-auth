@@ -1,6 +1,6 @@
 {
   "name": "@perimetre/nextjs-auth",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Next.js SDK for signing in",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,8 +10,8 @@
   "scripts": {
     "prebuild": "npm run check-commit",
     "build": "tsc -p tsconfig.build.json",
-    "prepublish": "npm run build",
-    "publish": "npm publish --access public",
+    "prepare": "npm run build",
+    "upload": "npm publish --access public",
     "prettier": "prettier --write \"{**/*.js,**/*.ts,**/*.tsx}\"",
     "lint": "eslint . --ext js --ext jsx --ext ts --ext tsx",
     "lint:fix": "npm run lint -- --fix",
