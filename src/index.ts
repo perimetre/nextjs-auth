@@ -25,6 +25,16 @@ export type AuthEnv = {
    * A list of the allowed origins, split by the '|' operator
    */
   ALLOWED_ORIGINS?: string;
+
+  /**
+   * The debug mode extensively logs each action in the console
+   */
+  DEBUG?: boolean;
+
+  /**
+   * If set to false. "Unauthorized" errors will return their real error even on prod
+   */
+  OMIT_ERRORS?: boolean;
 };
 
 /**

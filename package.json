@@ -1,6 +1,6 @@
 {
   "name": "@perimetre/nextjs-auth",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Next.js SDK for signing in",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -30,6 +30,7 @@
   "homepage": "https://github.com/perimetre/nextjs-auth#readme",
   "dependencies": {
     "@auth0/nextjs-auth0": "^0.16.0",
+    "chalk": "^4.1.0",
     "jsonwebtoken": "^8.5.1",
     "next": "^9.5.2",
     "typescript": "^4.0.2"

@@ -40,5 +40,6 @@ module.exports = {
     jsdoc: {
       mode: 'typescript'
     }
-  }
+  },
+  env: { es6: true }
 };
