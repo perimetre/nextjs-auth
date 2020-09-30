@@ -1,55 +1,76 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import CookieSessionStoreSettings from '@auth0/nextjs-auth0/dist/session/cookie-store/settings';
 import { ISession } from '@auth0/nextjs-auth0/dist/session/session';
 import { ISessionStore } from '@auth0/nextjs-auth0/dist/session/store';
-import { setCookies } from '@auth0/nextjs-auth0/dist/utils/cookies';
-import jwt from 'jsonwebtoken';
+import { setCookies, parseCookies } from '@auth0/nextjs-auth0/dist/utils/cookies';
+import { createState, decodeState } from '@auth0/nextjs-auth0/dist/utils/state';
+import getSessionFromTokenSet from '@auth0/nextjs-auth0/dist/utils/session';
+import { TokenSet } from 'openid-client';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { AuthSettings } from './index';
-import { isOriginAllowed, isTokenExpired } from './utils';
+import { isOriginAllowed, isTokenExpired, OAuth2Client } from './utils';
 import logging from './logging';
+import { HandleUserOptions, HandleSessionOptions, UserAuth } from './service';
+import jwt from 'jsonwebtoken';
 
 /**
- * @typedef UserAuth
+ * @typedef AuthorizationParameters
  */
-export type UserAuth = {
+export interface AuthorizationParameters {
+  scope?: string;
+  state?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * @typedef HandleLoginOauthOptions
+ */
+export type HandleLoginOauthOptions = {
   /**
-   * The user's accessToken
+   * A state handler callback. If provided will be called to get a state object to send in the authorization request
+   *
+   * @param {NextApiRequest} req The server request
+   * @returns The state object to be sent in the authorization request and received back in the callback enpoint
    */
-  accessToken: string;
+  getState?: (req: NextApiRequest) => Record<string, any>;
+
   /**
-   * The user's refreshToken
+   * OAuth authorization parameters to be forwarded to the authorization server.
    */
-  refreshToken: string;
+  authParams?: AuthorizationParameters;
+
+  /**
+   * Redirect url after user session has been saved.
+   */
+  redirectTo?: string;
 };
 
 /**
- * @typedef HandleUserOptions
+ * @typedef HandleCallbackOauthOptions
  */
-export type HandleUserOptions = {
+export type HandleCallbackOauthOptions = {
   /**
-   * Whether or not you want to skip the refresh of the token if it ever happens
+   * Redirect url after user session has been saved.
    */
-  skipRefresh?: boolean;
+  redirectTo?: string;
 
   /**
-   * Whether or not you want to force the refresh of the token every time an access token is requested
+   * Identity validation hook. Will be called once the response payload has been decoded.
+   *
+   * If the current accessToken is expired it will try to refresh it with `onRefresh`.
+   *
+   * @param {NextApiRequest} req The server request
+   * @param {NextApiResponse} res The server response
+   * @param {ISession} session The session payload received in callback
+   * @param {object} state The state payload received in callback
+   * @returns {ISession} The processed session payload that will actually be saved in session store
    */
-  forceRefresh?: boolean;
-};
-
-/**
- * @typedef HandleSessionOptions
- */
-export type HandleSessionOptions = {
-  /**
-   * Whether or not you want to skip the refresh of the token if it ever happens
-   */
-  skipRefresh?: boolean;
-
-  /**
-   * Whether or not you want to force the refresh of the token every time an access token is requested
-   */
-  forceRefresh?: boolean;
+  onUserLoaded?: (
+    req: NextApiRequest,
+    res: NextApiResponse,
+    session: ISession,
+    state: Record<string, any>
+  ) => Promise<ISession>;
 };
 
 /**
@@ -58,12 +79,14 @@ export type HandleSessionOptions = {
  * @param {AuthSettings} settings The settings used for the auth client
  * @param {ISessionStore} sessionStore An instance of the sessionStore to be used
  * @param {CookieSessionStoreSettings} sessionSettings An instance of the sessionStore settings
- * @returns {typeof authService} The authService instance
+ * @param {OAuth2Client} oauthClient An instance of the OAuth client to be used
+ * @returns {typeof authServiceOauth} The authService instance
  */
-export const authService = (
+export const authServiceOauth = (
   settings: AuthSettings,
   sessionStore: ISessionStore,
-  sessionSettings: CookieSessionStoreSettings
+  sessionSettings: CookieSessionStoreSettings,
+  oauthClient: () => OAuth2Client
 ) => {
   /**
    * Make an error that falls back to "Unauthorized" if NOT `NODE_ENV === development`
@@ -102,38 +125,6 @@ export const authService = (
   };
 
   /**
-   * Get the same session but in an filtered object, that can be used publicly and returned from an API and without any OIDC specific claim.
-   *
-   * @param {ISession} session A non filtered session
-   * @returns {ISession} A filtered session
-   */
-  const getPublicSession = (session: ISession): ISession => {
-    const newSession = { ...session };
-    const user = { ...newSession.user };
-
-    logging.debug(settings.authEnv, '[getPublicSession] Filtering a session object');
-
-    // Get the claims without any OIDC specific claim.
-    if (user.aud) {
-      delete user.aud;
-    }
-
-    if (user.exp) {
-      delete user.exp;
-    }
-
-    if (user.iat) {
-      delete user.iat;
-    }
-
-    if (user.iss) {
-      delete user.iss;
-    }
-
-    return { ...newSession, user };
-  };
-
-  /**
    * Returns whether or not the given session is valid.
    *
    * @param {ISession | null | undefined} session The session
@@ -142,20 +133,16 @@ export const authService = (
   const isSessionValid = (session?: ISession | null) => session && session.user && Object.keys(session.user).length > 0;
 
   /**
-   * The signup handler that must be called by a signup API route.
+   * The login handler that must be called by an OAuth2 login API route.
    *
-   * It will call the `onSignup` callback, then create a server session for the given user, and return the user payload
+   * It will redirect the user to the authorization server endpoint for authentication/authorization
    *
    * @param {NextApiRequest} req The server request
    * @param {NextApiResponse} res The server response
-   * @returns The user signup properties
+   * @param {HandleLoginOauthOptions} oauthOptions The method options if any. Only used when you are implementing OAuth logins
    */
-  const handleSignup = async (req: NextApiRequest, res: NextApiResponse) => {
+  const handleLogin = async (req: NextApiRequest, res: NextApiResponse, oauthOptions?: HandleLoginOauthOptions) => {
     try {
-      if (!settings?.onSignup) {
-        throw new Error('onSignup callback was not provided');
-      }
-
       if (!req) {
         throw new Error('Request is not available');
       }
@@ -164,92 +151,55 @@ export const authService = (
         throw new Error('Response is not available');
       }
 
-      const allowedOrigins = (await settings.authEnv()).ALLOWED_ORIGINS;
-
-      if (!isOriginAllowed(allowedOrigins, req.headers.origin)) {
-        throw await makeDevUnauthorizedError('Origin not allowed');
+      if (!settings.oauthSettings) {
+        throw new Error('oauthSettings setting property was not provided');
       }
 
-      logging.debug(settings.authEnv, '[handleSignup] Calling onSignup callback');
+      if (req.query.redirectTo) {
+        if (typeof req.query.redirectTo !== 'string') {
+          throw new Error('Invalid value provided for redirectTo, must be a string');
+        }
 
-      // Call the login callback
-      const userAuth = await settings.onSignup(req, res);
-
-      logging.debug(settings.authEnv, '[handleSignup] onSignup callback finished successfully');
-
-      // If we get here we succeeded
-      const sessionPayload = getSessionFromAuth(userAuth);
-
-      logging.debug(settings.authEnv, '[handleSignup] saving session payload');
-
-      // Create the session, which will store the user info.
-      await sessionStore.save(req, res, sessionPayload);
-
-      const publicSession = getPublicSession(sessionPayload as ISession);
-
-      logging.debug(settings.authEnv, '[handleSignup] returning public session');
-
-      return { user: publicSession.user, accessToken: publicSession.accessToken };
-    } catch (error) {
-      logging.debug(settings.authEnv, '[handleSignup] catch', error);
-      // If something failed
-      if (settings?.formatError) {
-        throw settings?.formatError(error);
-      } else {
-        throw error;
-      }
-    }
-  };
-
-  /**
-   * The login handler that must be called by a login API route.
-   *
-   * It will call the `onLogin` callback, then create a server session for the given user, and return the user payload
-   *
-   * @param {NextApiRequest} req The server request
-   * @param {NextApiResponse} res The server response
-   * @returns The user login properties
-   */
-  const handleLogin = async (req: NextApiRequest, res: NextApiResponse) => {
-    try {
-      if (!settings?.onLogin) {
-        throw new Error('onLogin callback was not provided');
+        const allowedOrigins = (await settings.authEnv()).ALLOWED_ORIGINS;
+        if (!isOriginAllowed(allowedOrigins, req.query.redirectTo)) {
+          throw new Error('Invalid value provided for redirectTo, must be a relative url');
+        }
       }
 
-      if (!req) {
-        throw new Error('Request is not available');
-      }
+      logging.debug(
+        settings.authEnv,
+        '[handleLogin] preparing state to save in cookie before redirect to authorization endpoint'
+      );
 
-      if (!res) {
-        throw new Error('Response is not available');
-      }
+      const opt = oauthOptions || {};
+      const getLoginState =
+        opt.getState ||
+        function getLoginState(): Record<string, any> {
+          return {};
+        };
 
-      const allowedOrigins = (await settings.authEnv()).ALLOWED_ORIGINS;
+      const {
+        // Generate a state which contains a nonce, the redirectTo uri and potentially custom data
+        state = createState({
+          redirectTo: req.query?.redirectTo || oauthOptions?.redirectTo,
+          ...getLoginState(req)
+        }),
+        ...authParams
+      } = (opt && opt.authParams) || {};
 
-      if (!isOriginAllowed(allowedOrigins, req.headers.origin)) {
-        throw await makeDevUnauthorizedError('Origin not allowed');
-      }
+      // Set the necessary cookies
+      setCookies(req, res, [
+        {
+          name: 'a0:state',
+          value: state,
+          maxAge: 60 * 60
+        }
+      ]);
 
-      logging.debug(settings.authEnv, '[handleLogin] Calling onLogin callback');
+      logging.debug(settings.authEnv, '[handleLogin] redirecting to authorization endpoint');
 
-      // Call the login callback
-      const userAuth = await settings.onLogin(req, res);
-
-      logging.debug(settings.authEnv, '[handleLogin] onLogin callback finished successfully');
-
-      // If we get here we succeeded
-      const sessionPayload = getSessionFromAuth(userAuth);
-
-      logging.debug(settings.authEnv, '[handleLogin] saving session payload');
-
-      // Create the session, which will store the user info.
-      await sessionStore.save(req, res, sessionPayload);
-
-      const publicSession = getPublicSession(sessionPayload as ISession);
-
-      logging.debug(settings.authEnv, '[handleLogin] returning public session');
-
-      return { user: publicSession.user, accessToken: publicSession.accessToken };
+      // Redirect to the authorize endpoint.
+      oauthClient().authorize(req, res, { scope: settings.oauthSettings.scope, state, ...authParams });
     } catch (error) {
       logging.debug(settings.authEnv, '[handleLogin] catch', error);
       // If something failed
@@ -262,6 +212,83 @@ export const authService = (
   };
 
   /**
+   * The callback handler that must be called by an OAuth2 callback API route.
+   *
+   * It will receive an authorization code, exchange it for access tokens, save the session and redirect to
+   *
+   * @param {NextApiRequest} req The server request
+   * @param {NextApiResponse} res The server response
+   * @param {HandleCallbackOauthOptions} oauthOptions The method options if any. Only used when you are implementing OAuth logins
+   */
+  const handleCallback = async (
+    req: NextApiRequest,
+    res: NextApiResponse,
+    oauthOptions?: HandleCallbackOauthOptions
+  ) => {
+    if (!res) {
+      throw new Error('Response is not available');
+    }
+
+    if (!req) {
+      throw new Error('Request is not available');
+    }
+
+    if (!settings.oauthSettings) {
+      throw new Error('oauthSettings setting property was not provided');
+    }
+
+    logging.debug(
+      settings.authEnv,
+      '[handleCallback] Reading state data from saved cookie to compare with the one sent in handleLogin'
+    );
+
+    // Parse the cookies.
+    const cookies = parseCookies(req);
+
+    // Require that we have a state.
+    const state = cookies['a0:state'];
+    if (!state) {
+      throw new Error('Invalid request, an initial state could not be found');
+    }
+
+    logging.debug(
+      settings.authEnv,
+      '[handleCallback] Calling token endpoint to exchange authorization code for tokens'
+    );
+
+    const tokenSet = await oauthClient().authenticate(req, res);
+
+    if (!tokenSet) {
+      logging.debug(settings.authEnv, '[handleCallback] Could not get token set from authentication provider');
+      // throw new Error('Could not get token set from authentication provider');
+      res.redirect('/login');
+    }
+    logging.debug(settings.authEnv, '[handleCallback] Decoding state from cookie', tokenSet);
+
+    const decodedState = decodeState(state);
+    let session = getSessionFromAuth(tokenSet);
+
+    // Run the identity validated hook.
+    if (oauthOptions && oauthOptions.onUserLoaded) {
+      logging.debug(settings.authEnv, '[handleCallback] Running the identity validated hook');
+      session = await oauthOptions.onUserLoaded(req, res, session, decodedState);
+      logging.debug(settings.authEnv, '[handleCallback] Finished running the identity validated hook');
+    }
+
+    logging.debug(settings.authEnv, '[handleCallback] Saving session and redirect to redirectTo');
+
+    // Create the session.
+    await sessionStore.save(req, res, session);
+
+    // Redirect to the homepage or custom url.
+    const redirectTo = (oauthOptions && oauthOptions.redirectTo) || decodedState.redirectTo || '/';
+    res.writeHead(302, {
+      Location: redirectTo
+    });
+    res.end();
+  };
+
+  /**
    * The logout handler that must be called by a logout API route.
    *
    * It will call the `onLogout` callback, then clear the server session for the given user.
@@ -271,10 +298,6 @@ export const authService = (
    */
   const handleLogout = async (req: NextApiRequest, res: NextApiResponse) => {
     try {
-      if (!settings?.onLogout) {
-        throw new Error('onLogout callback was not provided');
-      }
-
       if (!req) {
         throw new Error('Request is not available');
       }
@@ -293,16 +316,6 @@ export const authService = (
       // If we have a session, continue
       if (isSessionValid(sessionPayload)) {
         logging.debug(settings.authEnv, '[handleLogout] session is valid');
-        try {
-          logging.debug(settings.authEnv, '[handleLogout] Calling onLogout callback');
-
-          // Call the login callback
-          await settings.onLogout(req, res, sessionPayload as ISession);
-
-          logging.debug(settings.authEnv, '[handleLogout] onLogout callback finished successfully');
-        } catch (err) {
-          logging.debug(settings.authEnv, '[handleLogout] onLogout callback error', err);
-        }
 
         logging.debug(settings.authEnv, '[handleLogout] clearing session');
 
@@ -341,15 +354,9 @@ export const authService = (
    * @param {NextApiRequest} req The server request
    * @param {NextApiResponse} res The server response
    * @param {HandleSessionOptions} options The method options if any
-   * @param {boolean} rawSession Whether or not should filter the session keys
    * @returns {ISession | undefined} The current user session within the server.
    */
-  const getSession = async (
-    req: NextApiRequest,
-    res: NextApiResponse,
-    options?: HandleSessionOptions,
-    rawSession?: boolean
-  ) => {
+  const getSession = async (req: NextApiRequest, res: NextApiResponse, options?: HandleSessionOptions) => {
     try {
       if (!req) {
         throw new Error('Request is not available');
@@ -371,10 +378,6 @@ export const authService = (
 
         // If we want to refresh the user
         if (!options?.skipRefresh) {
-          if (!settings?.onRefresh) {
-            throw new Error('onRefresh callback was not provided');
-          }
-
           if (!sessionPayload.refreshToken) {
             throw new Error('No refresh token available to refetch the profile');
           }
@@ -390,23 +393,33 @@ export const authService = (
             if (!isTokenExpired(sessionPayload.refreshToken)) {
               logging.debug(settings.authEnv, '[getSession] refreshToken NOT expired');
 
-              logging.debug(settings.authEnv, '[getSession] Calling onRefresh callback');
+              logging.debug(settings.authEnv, '[getSession] calling refresh token endpoint');
 
-              // Call the refresh callback
-              const userAuth = await settings.onRefresh(req, res, sessionPayload.refreshToken);
+              // Call the refresh token endpoint
+              const newTokens = await oauthClient().refresh(sessionPayload.refreshToken);
+              if (!newTokens.accessToken) {
+                logging.debug(settings.authEnv, '[getSession] could not refresh tokens');
+                logging.debug(settings.authEnv, '[getSession] logging out user');
+                // If we couldn't get new tokens, logout
+                await handleLogout(req, res);
+                return undefined;
+              }
 
-              logging.debug(settings.authEnv, '[getSession] onRefresh callback finished successfully');
+              logging.debug(settings.authEnv, '[getSession] call to refresh token endpoint finished successfully');
 
-              // If we get here we succeeded
+              // Update the session.
               sessionPayload = getSessionFromAuth({
-                refreshToken: sessionPayload.refreshToken,
-                ...userAuth
+                accessToken: newTokens.accessToken,
+                refreshToken: newTokens.refreshToken || (sessionPayload?.refreshToken as string)
               });
 
               logging.debug(settings.authEnv, '[getSession] saving new refreshed session payload');
 
               // Create the session, which will store the user info.
               await sessionStore.save(req, res, sessionPayload);
+
+              logging.debug(settings.authEnv, '[getSession] returning session');
+              return sessionPayload;
             } else {
               logging.debug(settings.authEnv, '[getSession] refreshToken IS expired');
               if (isSessionValid(sessionPayload)) {
@@ -419,9 +432,9 @@ export const authService = (
           }
         }
 
-        logging.debug(settings.authEnv, '[getSession] returning public or raw session');
+        // logging.debug(settings.authEnv, '[getSession] returning session');
 
-        return rawSession ? sessionPayload : getPublicSession(sessionPayload);
+        return sessionPayload;
       } else {
         return undefined;
       }
@@ -459,16 +472,15 @@ export const authService = (
       }
 
       // Get the current session
-      const sessionPayload = await getSession(req, res, { ...options }, true);
+      const sessionPayload = await getSession(req, res, { ...options });
 
       logging.debug(settings.authEnv, '[handleUser] validating session');
 
       // If we have a session, continue
-      if (isSessionValid(sessionPayload)) {
+      if (sessionPayload && isSessionValid(sessionPayload)) {
         logging.debug(settings.authEnv, '[handleUser] session is valid');
-        const publicSession = getPublicSession(sessionPayload as ISession);
         logging.debug(settings.authEnv, '[handleLogin] returning public session');
-        return { user: publicSession.user, accessToken: publicSession.accessToken };
+        return { user: sessionPayload.user, accessToken: sessionPayload.accessToken };
       } else {
         logging.debug(settings.authEnv, '[handleUser] session is NOT valid');
         throw await makeDevUnauthorizedError('[handleUser] Invalid session payload');
@@ -510,7 +522,7 @@ export const authService = (
       }
 
       // Get the current session
-      const sessionPayload = await getSession(req, res, { skipRefresh: true }, true);
+      const sessionPayload = await getSession(req, res, { skipRefresh: true });
 
       logging.debug(settings.authEnv, '[handleUpdateClaims] validating session');
 
@@ -519,7 +531,7 @@ export const authService = (
         logging.debug(settings.authEnv, '[handleUpdateClaims] session is valid');
 
         // Filters the fields we just got. We can only update simple custom claims
-        const bodySession = getPublicSession({ user: req.body } as ISession);
+        const bodySession = getSessionFromTokenSet({ claims: req.body } as TokenSet);
 
         // Makes a new session that merges both
         const finalSession = {
@@ -533,11 +545,9 @@ export const authService = (
         // Update the current session with the existing + the
         await sessionStore.save(req, res, finalSession);
 
-        const publicSession = getPublicSession(finalSession);
-
         logging.debug(settings.authEnv, '[handleUpdateClaims] returning public session');
 
-        return { user: publicSession.user, accessToken: publicSession.accessToken };
+        return { user: finalSession.user, accessToken: finalSession.accessToken };
       } else {
         logging.debug(settings.authEnv, '[handleUpdateClaims] session is NOT valid');
         throw await makeDevUnauthorizedError('[handleUpdateClaims] Invalid session payload');
@@ -554,14 +564,14 @@ export const authService = (
   };
 
   return {
-    handleSignup,
-    handleLogin,
     /**
-     * The handleCallback method can only be used when you are using the OAuth flow
+     * The handleSignup method can only be used when you are not using the OAuth flow
      */
-    handleCallback: () => {
-      throw new Error('The handleCallback method can only be used when you are using the OAuth flow');
+    handleSignup: () => {
+      throw new Error('The handleSignup method can only be used when you are not using the OAuth flow');
     },
+    handleLogin,
+    handleCallback,
     handleLogout,
     handleUser,
     getSession,

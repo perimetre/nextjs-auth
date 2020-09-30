@@ -6,10 +6,14 @@ import { ISession } from '@auth0/nextjs-auth0/dist/session/session';
 import { ISessionStore } from '@auth0/nextjs-auth0/dist/session/store';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { authService, UserAuth } from './service';
+import { authServiceOauth } from './serviceOauth';
+import { getClient } from './utils';
 
 /**
  * @typedef { import("./service").HandleUserOptions } HandleUserOptions
  * @typedef { import("./service").HandleSessionOptions } HandleSessionOptions
+ * @typedef { import("./serviceOauth").HandleLoginOauthOptions } HandleLoginOauthOptions
+ * @typedef { import("./serviceOauth").HandleCallbackOauthOptions } HandleCallbackOauthOptions
  */
 
 /**
@@ -38,6 +42,46 @@ export type AuthEnv = {
 };
 
 /**
+ * @typedef OAuthSettings
+ */
+export type OAuthSettings = {
+  /**
+   * Authorization server authorization endpoint url.
+   */
+  authorizationEndpoint: string;
+
+  /**
+   * Authorization server token endpoint url.
+   */
+  tokenEndpoint: string;
+
+  /**
+   * Your client ID in the authorization server.
+   */
+  clientId: string;
+
+  /**
+   * Your client secret in the authorization server.
+   */
+  clientSecret: string;
+
+  /**
+   * Url to redirect to after the user has signed in at the authorization server.
+   */
+  redirectUri: string;
+
+  /**
+   * The scope requested by the client.
+   */
+  scope: string;
+
+  /**
+   * The audience identifies the resource server that should accept tokens generated when your client is authorized.
+   */
+  audience?: string;
+};
+
+/**
  * @typedef AuthSettings
  */
 export type AuthSettings = {
@@ -47,13 +91,18 @@ export type AuthSettings = {
   session: ICookieSessionStoreSettings;
 
   /**
+   * OAuth authorization settings. Enables handling OAuth 2 login authorizations, if provided.
+   */
+  oauthSettings?: OAuthSettings;
+
+  /**
    * An async `onLogin` handler callback, which will be called by the service when `handleLogin` is executing.
    *
    * @param {NextApiRequest} req The server request
    * @param {NextApiResponse} res The server response
    * @returns {UserAuth} The user access token and refresh token
    */
-  onLogin: (req: NextApiRequest, res: NextApiResponse) => Promise<UserAuth>;
+  onLogin?: (req: NextApiRequest, res: NextApiResponse) => Promise<UserAuth>;
 
   /**
    * An async `onSignup` handler callback, which will be called by the service when `handleSignup` is executing.
@@ -62,7 +111,7 @@ export type AuthSettings = {
    * @param {NextApiResponse} res The server response
    * @returns {UserAuth} The user access token and refresh token
    */
-  onSignup: (req: NextApiRequest, res: NextApiResponse) => Promise<UserAuth>;
+  onSignup?: (req: NextApiRequest, res: NextApiResponse) => Promise<UserAuth>;
 
   /**
    * An async `onLogout` handler callback, which will be called by the service when `handleLogout` is executing.
@@ -71,7 +120,7 @@ export type AuthSettings = {
    * @param {NextApiResponse} res The server response
    * @param {ISession} session The current logged user session
    */
-  onLogout: (req: NextApiRequest, res: NextApiResponse, session: ISession) => Promise<void>;
+  onLogout?: (req: NextApiRequest, res: NextApiResponse, session: ISession) => Promise<void>;
 
   /**
    * An async `onRefresh` handler callback, which will be called by the service when `getSession` is executing and the current user is invalid.
@@ -83,11 +132,11 @@ export type AuthSettings = {
    * @param {string} refreshToken The current logged user refresh token
    * @returns The user's access token
    */
-  onRefresh: (
+  onRefresh?: (
     req: NextApiRequest,
     res: NextApiResponse,
     refreshToken: string
-  ) => Promise<Omit<UserAuth, 'refreshToken'>>;
+  ) => Promise<Omit<UserAuth, 'refreshToken'> & Partial<UserAuth>>;
 
   /**
    * A callback that is called every time an error is thrown. Will override the thrown error with what this function returns and throw it instead.
@@ -119,6 +168,10 @@ export type AuthClient = {
    *
    * It will call the `onSignup` callback, then create a server session for the given user, and return the user payload
    *
+   * If you're using an OAuth authentication flow (i.e. if you set `oauthSettings`), this handler
+   * will NOT be implemented. You must use the `handleLogin` for all authentication needs
+   * (you can differentiate login from signup by using the property `oauthOptions` in the `handleLogin` handler)
+   *
    * @param {NextApiRequest} req The server request
    * @param {NextApiResponse} res The server response
    * @returns The user signup properties
@@ -127,17 +180,35 @@ export type AuthClient = {
   /**
    * The login handler that must be called by a login API route.
    *
-   * It will call the `onLogin` callback, then create a server session for the given user, and return the user payload
+   * If you're handling user credentials authentication, this handler will call the `onLogin`callback,
+   * then create a server session for the given user, and return the user payload.
+   *
+   * If you're using an OAuth authentication flow (i.e. if you set `oauthSettings`), this handler will
+   * redirect the user to the authorization server endpoint for authorization
    *
    * @param {NextApiRequest} req The server request
    * @param {NextApiResponse} res The server response
-   * @returns The user login properties
+   * @param {HandleLoginOauthOptions} oauthOptions The method options if any. Only used when you are implementing OAuth logins
    */
-  handleLogin: ReturnType<typeof authService>['handleLogin'];
+  handleLogin: ReturnType<typeof authService>['handleLogin'] | ReturnType<typeof authServiceOauth>['handleLogin'];
+  /**
+   * The callback handler that must be called by an OAuth2 callback API route.
+   *
+   * It will receive an authorization code, exchange it for access tokens, save the session and redirect to
+   *
+   * @param {NextApiRequest} req The server request
+   * @param {NextApiResponse} res The server response
+   * @param {HandleCallbackOauthOptions} oauthOptions The method options if any. Only used when you are implementing OAuth logins
+   */
+  handleCallback: ReturnType<typeof authServiceOauth>['handleCallback'];
   /**
    * The logout handler that must be called by a logout API route.
    *
-   * It will call the `onLogout` callback, then clear the server session for the given user.
+   * If you're doing your own user credentials authentication, this handler will call the `onLogout` callback,
+   * then clear the server session for the given user.
+   *
+   * If you're using an OAuth authentication flow (i.e. if you set `oauthSettings`), this handler will
+   * just clear the server session for the given user
    *
    * @param {NextApiRequest} req The server request
    * @param {NextApiResponse} res The server response
@@ -207,6 +278,12 @@ const createBrowserClient = (_settings: AuthSettings): AuthClient => {
       throw new Error('The handleLogin method can only be used from the server side');
     },
     /**
+     * The handleCallbackOAuth method can only be used from the server side
+     */
+    handleCallback: () => {
+      throw new Error('The handleCallback method can only be used from the server side');
+    },
+    /**
      * The handleLogout method can only be used from the server side
      */
     handleLogout: () => {
@@ -244,7 +321,16 @@ const createServerClient = (settings: AuthSettings): AuthClient => {
   // Initialize dependencies
   const sessionSettings = new CookieSessionStoreSettings(settings.session);
   const store: ISessionStore = new CookieSessionStore(sessionSettings);
-  const service = authService(settings, store, sessionSettings);
+
+  let service;
+  if (settings.oauthSettings) {
+    // OAuth2 provider will handle redirects to the authorization server and a callback to exchange authorization for tokens
+    const clientProvider = getClient(settings);
+    service = authServiceOauth(settings, store, sessionSettings, clientProvider);
+  } else {
+    // Developer will handle exchange of user credentials for tokens
+    service = authService(settings, store, sessionSettings);
+  }
 
   // Return client
   const client: AuthClient = {
