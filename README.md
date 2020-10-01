@@ -111,37 +111,37 @@ export const getAuthClient = () =>
       /**
        * Authorization server authorization endpoint url.
        */
-      authorizationEndpoint:
+      authorizationEndpoint: '',
 
       /**
        * Authorization server token endpoint url.
        */
-      tokenEndpoint:
+      tokenEndpoint: '',
 
       /**
        * Your client ID in the authorization server.
        */
-      clientId:
+      clientId: '',
 
       /**
        * Your client secret in the authorization server.
        */
-      clientSecret:
+      clientSecret: '',
 
       /**
        * Url to redirect to after the user has signed in at the authorization server.
        */
-      redirectUri:
+      redirectUri: '',
 
       /**
        * The scope requested by the client.
        */
-      scope:
+      scope: '',
 
       /**
-       * The audience identifies the resource server that should accept tokens generated when your client is authorized.
+       * Optional. The audience identifies the resource server that should accept tokens generated when your client is authorized.
        */
-      audience?:
+      audience: ''
     },
     session: // Refer to the @auth0/nextjs-auth0 runtime configuration at https://github.com/auth0/nextjs-auth0#runtime-configuration
   });
