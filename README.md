@@ -12,9 +12,13 @@ Auth SDK to add secure signup to a Next.js application
 npm install @perimetre/nextjs-auth0
 ```
 
-## Getting Started
+## Getting Started - Runtime Configuration
 
-### Runtime Configuration
+This library can be used with handler callbacks for each login action, leaving the implementation to the developer.
+
+It also supports handling logins using the OAuth 2.0 Authorization Code Grant type flow. When using the OAuth approach, the library will take care of the process, so the handler callbacks are NOT used.
+
+### Handling the exchange of user credentials for tokens by yourself
 
 ```ts
 import { initAuthClient } from '@perimetre/nextjs-auth';
@@ -81,6 +85,63 @@ export const getAuthClient = () =>
     formatError: (error) => {
       // Format your error
       return new Error(error);
+    },
+    session: // Refer to the @auth0/nextjs-auth0 runtime configuration at https://github.com/auth0/nextjs-auth0#runtime-configuration
+  });
+```
+
+### Handling authentication with the OAuth 2.0 Authorization Code Grant
+
+If the property `oauthSettings` is provided, the library will attempt to make logins with the OAuth 2.0 flow. In this case, the callbacks for each login handler are not used so they shouldn't be provided.
+
+```ts
+import { initAuthClient } from '@perimetre/nextjs-auth';
+
+export const getAuthClient = () =>
+  initAuthClient({
+    authEnv: async () => {
+      return {
+        /* Environment variables */
+      };
+    },
+    /**
+     * OAuth authorization settings. Enables handling OAuth 2 login authorizations, if provided.
+     */
+    oauthSettings: {
+      /**
+       * Authorization server authorization endpoint url.
+       */
+      authorizationEndpoint: '',
+
+      /**
+       * Authorization server token endpoint url.
+       */
+      tokenEndpoint: '',
+
+      /**
+       * Your client ID in the authorization server.
+       */
+      clientId: '',
+
+      /**
+       * Your client secret in the authorization server.
+       */
+      clientSecret: '',
+
+      /**
+       * Url to redirect to after the user has signed in at the authorization server.
+       */
+      redirectUri: '',
+
+      /**
+       * The scope requested by the client.
+       */
+      scope: '',
+
+      /**
+       * Optional. The audience identifies the resource server that should accept tokens generated when your client is authorized.
+       */
+      audience: ''
     },
     session: // Refer to the @auth0/nextjs-auth0 runtime configuration at https://github.com/auth0/nextjs-auth0#runtime-configuration
   });
