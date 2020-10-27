@@ -9,7 +9,7 @@ Auth SDK to add secure signup to a Next.js application
 ## Installation
 
 ```sh
-npm install @perimetre/nextjs-auth0
+npm install @perimetre/nextjs-auth
 ```
 
 ## Getting Started - Runtime Configuration
