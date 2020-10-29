@@ -81,6 +81,11 @@ export type HandleLogoutOauthOptions = {
    * Redirect url after user session has been saved.
    */
   redirectTo?: string;
+
+  /**
+   * Whether or not the redirect should be skipped at all
+   */
+  skipRedirect?: string;
 };
 
 /**
@@ -359,7 +364,7 @@ export const authServiceOauth = (
         ]);
       }
 
-      if (redirectTo) {
+      if (!oauthOptions?.skipRedirect && redirectTo) {
         // Redirect to the logout endpoint.
         res.writeHead(302, {
           Location: redirectTo
