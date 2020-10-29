@@ -64,7 +64,7 @@ export type HandleLogoutOptions = {
   /**
    * Whether or not the redirect should be skipped at all
    */
-  skipRedirect?: string;
+  skipRedirect?: boolean;
 };
 
 /**
