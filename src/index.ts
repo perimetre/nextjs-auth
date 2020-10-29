@@ -74,7 +74,7 @@ export type OAuthSettings = {
   /**
    * Url to redirect to after the user has logged out.
    */
-  postLogoutRedirectUri: string;
+  postLogoutRedirectUri?: string;
 
   /**
    * The scope requested by the client.
