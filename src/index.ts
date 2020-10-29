@@ -14,6 +14,7 @@ import { getClient } from './utils';
  * @typedef { import("./service").HandleSessionOptions } HandleSessionOptions
  * @typedef { import("./serviceOauth").HandleLoginOauthOptions } HandleLoginOauthOptions
  * @typedef { import("./serviceOauth").HandleCallbackOauthOptions } HandleCallbackOauthOptions
+ * @typedef { import("./serviceOauth").HandleLogoutOptions } HandleLogoutOptions
  */
 
 /**
@@ -69,6 +70,11 @@ export type OAuthSettings = {
    * Url to redirect to after the user has signed in at the authorization server.
    */
   redirectUri: string;
+
+  /**
+   * Url to redirect to after the user has logged out.
+   */
+  postLogoutRedirectUri: string;
 
   /**
    * The scope requested by the client.
@@ -212,6 +218,7 @@ export type AuthClient = {
    *
    * @param {NextApiRequest} req The server request
    * @param {NextApiResponse} res The server response
+   * @param {HandleLogoutOptions} options The method options if any
    */
   handleLogout: ReturnType<typeof authService>['handleLogout'];
   /**

@@ -74,6 +74,16 @@ export type HandleCallbackOauthOptions = {
 };
 
 /**
+ * @typedef HandleLogoutOauthOptions
+ */
+export type HandleLogoutOauthOptions = {
+  /**
+   * Redirect url after user session has been saved.
+   */
+  redirectTo?: string;
+};
+
+/**
  * Creates an instance of the auth service
  *
  * @param {AuthSettings} settings The settings used for the auth client
@@ -295,8 +305,9 @@ export const authServiceOauth = (
    *
    * @param {NextApiRequest} req The server request
    * @param {NextApiResponse} res The server response
+   * @param {HandleLogoutOauthOptions} oauthOptions The method options if any. Only used when you are implementing OAuth logins
    */
-  const handleLogout = async (req: NextApiRequest, res: NextApiResponse) => {
+  const handleLogout = async (req: NextApiRequest, res: NextApiResponse, oauthOptions?: HandleLogoutOauthOptions) => {
     try {
       if (!req) {
         throw new Error('Request is not available');
@@ -304,6 +315,20 @@ export const authServiceOauth = (
 
       if (!res) {
         throw new Error('Response is not available');
+      }
+
+      const redirectTo =
+        req.query.redirectTo || oauthOptions?.redirectTo || settings?.oauthSettings?.postLogoutRedirectUri;
+
+      if (redirectTo) {
+        if (typeof redirectTo !== 'string') {
+          throw new Error('Invalid value provided for redirectTo, must be a string');
+        }
+
+        const allowedOrigins = (await settings.authEnv()).ALLOWED_ORIGINS;
+        if (!isOriginAllowed(allowedOrigins, redirectTo)) {
+          throw new Error('Invalid value provided for redirectTo, must be a relative url');
+        }
       }
 
       logging.debug(settings.authEnv, '[handleLogout] reading session');
@@ -332,6 +357,14 @@ export const authServiceOauth = (
             domain: sessionSettings.cookieDomain
           }
         ]);
+      }
+
+      if (redirectTo) {
+        // Redirect to the logout endpoint.
+        res.writeHead(302, {
+          Location: redirectTo
+        });
+        res.end();
       }
 
       // If don't have a session just fake that succeded?

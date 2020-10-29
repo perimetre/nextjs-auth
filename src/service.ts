@@ -53,6 +53,16 @@ export type HandleSessionOptions = {
 };
 
 /**
+ * @typedef HandleLogoutOptions
+ */
+export type HandleLogoutOptions = {
+  /**
+   * Redirect url after user session has been saved.
+   */
+  redirectTo?: string;
+};
+
+/**
  * Creates an instance of the auth service
  *
  * @param {AuthSettings} settings The settings used for the auth client
@@ -268,8 +278,9 @@ export const authService = (
    *
    * @param {NextApiRequest} req The server request
    * @param {NextApiResponse} res The server response
+   * @param {HandleLogoutOptions} options The method options if any
    */
-  const handleLogout = async (req: NextApiRequest, res: NextApiResponse) => {
+  const handleLogout = async (req: NextApiRequest, res: NextApiResponse, options?: HandleLogoutOptions) => {
     try {
       if (!settings?.onLogout) {
         throw new Error('onLogout callback was not provided');
@@ -281,6 +292,19 @@ export const authService = (
 
       if (!res) {
         throw new Error('Response is not available');
+      }
+
+      const redirectTo = req.query.redirectTo || options?.redirectTo;
+
+      if (redirectTo) {
+        if (typeof redirectTo !== 'string') {
+          throw new Error('Invalid value provided for redirectTo, must be a string');
+        }
+
+        const allowedOrigins = (await settings.authEnv()).ALLOWED_ORIGINS;
+        if (!isOriginAllowed(allowedOrigins, redirectTo)) {
+          throw new Error('Invalid value provided for redirectTo, must be a relative url');
+        }
       }
 
       logging.debug(settings.authEnv, '[handleLogout] reading session');
@@ -319,6 +343,14 @@ export const authService = (
             domain: sessionSettings.cookieDomain
           }
         ]);
+      }
+
+      if (redirectTo) {
+        // Redirect to the logout endpoint.
+        res.writeHead(302, {
+          Location: redirectTo
+        });
+        res.end();
       }
 
       // If don't have a session just fake that succeded?
