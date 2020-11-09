@@ -296,7 +296,7 @@ export const authServiceOauth = (
     await sessionStore.save(req, res, session);
 
     // Redirect to the homepage or custom url.
-    const redirectTo = (oauthOptions && oauthOptions.redirectTo) || decodedState.redirectTo || '/';
+    const redirectTo = decodedState.redirectTo || (oauthOptions && oauthOptions.redirectTo) || '/';
     res.writeHead(302, {
       Location: redirectTo
     });
