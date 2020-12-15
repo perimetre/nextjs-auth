@@ -51,8 +51,11 @@ export type HandleLoginOauthOptions = {
 export type HandleCallbackOauthOptions = {
   /**
    * Redirect url after user session has been saved.
+   *
+   * @param {string} stateRedirectTo The redirectTo param from state payload
+   * @returns The url to redirect the user to
    */
-  redirectTo?: string;
+  redirectTo?: (stateRedirectTo?: string) => string | undefined;
 
   /**
    * Identity validation hook. Will be called once the response payload has been decoded.
@@ -296,7 +299,9 @@ export const authServiceOauth = (
     await sessionStore.save(req, res, session);
 
     // Redirect to the homepage or custom url.
-    const redirectTo = decodedState.redirectTo || (oauthOptions && oauthOptions.redirectTo) || '/';
+    const redirectTo = oauthOptions?.redirectTo
+      ? oauthOptions?.redirectTo(decodedState.redirectTo)
+      : decodedState.redirectTo || '/';
     res.writeHead(302, {
       Location: redirectTo
     });
