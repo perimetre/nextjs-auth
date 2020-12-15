@@ -92,7 +92,7 @@ export const getAuthClient = () =>
 
 ### Handling authentication with the OAuth 2.0 Authorization Code Grant
 
-If the property `oauthSettings` is provided, the library will attempt to make logins with the OAuth 2.0 flow. In this case, the callbacks for each login handler are not used so they shouldn't be provided. 
+If the property `oauthSettings` is provided, the library will attempt to make logins with the OAuth 2.0 flow. In this case, the callbacks for each login handler are not used so they shouldn't be provided.
 
 ```ts
 import { initAuthClient } from '@perimetre/nextjs-auth';
